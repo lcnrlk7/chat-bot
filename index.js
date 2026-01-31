@@ -1,18 +1,23 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
-// ================= CONFIG CLIENT =================
+// ================= CLIENT =================
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
+  },
+  webVersionCache: {
+    type: 'remote',
+    remotePath:
+      'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   }
 });
 
 // ================= MEMÓRIA =================
-const users = new Set();        // usuários que já viram menu
-const humanSupport = new Set(); // usuários em atendimento humano
+const users = new Set();        // menu já enviado
+const humanSupport = new Set(); // atendimento humano ativo
 
 // ================= QR CODE =================
 client.on('qr', qr => {
@@ -59,19 +64,19 @@ client.on('message', async message => {
   const msg = message.body.trim();
   const user = message.from;
 
-  // 🔕 ignora grupos
-  if (message.from.includes('@g.us')) return;
+  // ignora grupos
+  if (user.includes('@g.us')) return;
 
-  // 👤 humano respondeu → pausa bot
+  // humano assumiu atendimento
   if (message.fromMe) {
     humanSupport.add(message.to);
     return;
   }
 
-  // 🤖 bot pausado para este cliente
+  // bot pausado para este cliente
   if (humanSupport.has(user)) return;
 
-  // ⏰ fora do horário
+  // fora do horário
   if (!isBusinessHours()) {
     return message.reply(
       '⏰ Nosso atendimento funciona de segunda a sexta, das 9h às 18h.\n' +
@@ -79,13 +84,12 @@ client.on('message', async message => {
     );
   }
 
-  // 🟢 primeira mensagem
+  // primeira mensagem
   if (!users.has(user)) {
     users.add(user);
     return message.reply(menu());
   }
 
-  // 📌 comandos
   switch (msg) {
     case '1':
       return message.reply(
