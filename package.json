@@ -1,20 +1,17 @@
 {
   "name": "chat-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot Bella by Julia",
+  "description": "WhatsApp bot Bella by Julia (Baileys)",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.34.6"
+    "@whiskeysockets/baileys": "^6.7.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "engines": {
     "node": "18.x"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }

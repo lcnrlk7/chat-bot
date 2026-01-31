@@ -1,31 +1,14 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason
+} = require('@whiskeysockets/baileys');
+
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
 
-// ================= CLIENT =================
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: false,
-  webVersionCache: {
-    type: 'remote',
-    remotePath:
-      'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-  }
-});
-
-// ================= MEMÓRIA =================
 const users = new Set();
 const humanSupport = new Set();
-
-// ================= QR CODE =================
-client.on('qr', qr => {
-  console.log('📲 Escaneie o QR Code abaixo:');
-  qrcode.generate(qr, { small: true });
-});
-
-// ================= READY =================
-client.on('ready', () => {
-  console.log('🤖 Bot Bella by Julia ONLINE!');
-});
 
 // ================= HORÁRIO =================
 function isBusinessHours() {
@@ -52,101 +35,124 @@ Digite uma opção 👇
 `;
 }
 
-// ================= MENSAGENS =================
-client.on('message', async message => {
-  const msg = message.body.trim();
-  const user = message.from;
-
-  if (user.includes('@g.us')) return;
-
-  if (message.fromMe) {
-    humanSupport.add(message.to);
-    return;
-  }
-
-  if (humanSupport.has(user)) return;
-
-  if (!isBusinessHours()) {
-    return message.reply(
-      '⏰ Atendimento: seg–sex, 9h às 18h.\nDeixe sua mensagem 💖'
-    );
-  }
-
-  if (!users.has(user)) {
-    users.add(user);
-    return message.reply(menu());
-  }
-
-  switch (msg) {
-    case '1':
-      return message.reply(
-        `✨ Sobre nós
-Moda feminina com elegância e sofisticação.
-https://www.bellabyjulia.com/sobre-nos
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '2':
-      return message.reply(
-        `🛍️ Como comprar
-https://www.bellabyjulia.com/como-comprar
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '3':
-      return message.reply(
-        `💳 Formas de pagamento
-https://www.bellabyjulia.com/formas-pagamento
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '4':
-      return message.reply(
-        `📦 Prazo de entrega
-https://www.bellabyjulia.com/prazo-entrega
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '5':
-      return message.reply(
-        `🔄 Política de trocas
-https://www.bellabyjulia.com/politica-troca
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '6':
-      return message.reply(
-        `🌐 Nosso site
-https://www.bellabyjulia.com
-
-Digite 9 para voltar 🔙`
-      );
-
-    case '9':
-      return message.reply(menu());
-
-    case '0':
-      humanSupport.add(user);
-      return message.reply('💬 Um atendente humano assumirá 💖');
-
-    default:
-      return;
-  }
-});
-
-// ================= RECUSAR CHAMADAS =================
-client.on('call', async call => {
-  await call.reject();
-  await client.sendMessage(
-    call.from,
-    '📵 Não atendemos chamadas.\nEnvie mensagem por aqui 💖'
-  );
-});
-
 // ================= START =================
-client.initialize();
+async function startBot() {
+  const { state, saveCreds } = await useMultiFileAuthState('./auth');
+
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+
+  // QR CODE
+  sock.ev.on('connection.update', ({ qr, connection, lastDisconnect }) => {
+    if (qr) {
+      console.log('📲 Escaneie o QR Code abaixo:');
+      qrcode.generate(qr, { small: true });
+    }
+
+    if (connection === 'open') {
+      console.log('🤖 Bot Bella by Julia ONLINE!');
+    }
+
+    if (connection === 'close') {
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut;
+      if (shouldReconnect) startBot();
+    }
+  });
+
+  // ================= MENSAGENS =================
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0];
+    if (!msg.message || msg.key.fromMe) return;
+
+    const user = msg.key.remoteJid;
+    if (user.includes('@g.us')) return;
+
+    const text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      '';
+
+    // pausa para humano
+    if (humanSupport.has(user)) return;
+
+    // fora do horário
+    if (!isBusinessHours()) {
+      return sock.sendMessage(user, {
+        text:
+          '⏰ Atendimento de segunda a sexta, das 9h às 18h.\n' +
+          'Deixe sua mensagem 💖'
+      });
+    }
+
+    // primeira mensagem
+    if (!users.has(user)) {
+      users.add(user);
+      return sock.sendMessage(user, { text: menu() });
+    }
+
+    switch (text.trim()) {
+      case '1':
+        return sock.sendMessage(user, {
+          text:
+            `✨ Sobre nós\nModa feminina com elegância e sofisticação.\n` +
+            `https://www.bellabyjulia.com/sobre-nos\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '2':
+        return sock.sendMessage(user, {
+          text:
+            `🛍️ Como comprar\nhttps://www.bellabyjulia.com/como-comprar\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '3':
+        return sock.sendMessage(user, {
+          text:
+            `💳 Formas de pagamento\nhttps://www.bellabyjulia.com/formas-pagamento\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '4':
+        return sock.sendMessage(user, {
+          text:
+            `📦 Prazo de entrega\nhttps://www.bellabyjulia.com/prazo-entrega\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '5':
+        return sock.sendMessage(user, {
+          text:
+            `🔄 Política de trocas\nhttps://www.bellabyjulia.com/politica-troca\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '6':
+        return sock.sendMessage(user, {
+          text:
+            `🌐 Nosso site\nhttps://www.bellabyjulia.com\n\nDigite 9 para voltar 🔙`
+        });
+
+      case '9':
+        return sock.sendMessage(user, { text: menu() });
+
+      case '0':
+        humanSupport.add(user);
+        return sock.sendMessage(user, {
+          text: '💬 Um atendente humano assumirá o atendimento 💖'
+        });
+
+      case 'bot on':
+        humanSupport.delete(user);
+        return sock.sendMessage(user, {
+          text: '🤖 Bot reativado com sucesso!'
+        });
+
+      default:
+        return;
+    }
+  });
+}
+
+startBot();
